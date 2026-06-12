@@ -146,8 +146,16 @@ export default function AlunoPage() {
 
           <div className="mt-6 flex flex-col gap-3 sm:flex-row sm:flex-wrap">
   <Link
-    href="/aluno/entrar-turma"
+    href="/aluno/aulas"
     className="inline-flex items-center justify-center gap-2 rounded-2xl bg-cyan-300 px-5 py-3 text-sm font-semibold text-slate-950 transition hover:bg-cyan-200"
+  >
+    <BookOpen size={18} />
+    Minhas aulas
+  </Link>
+
+  <Link
+    href="/aluno/entrar-turma"
+    className="inline-flex items-center justify-center gap-2 rounded-2xl border border-cyan-300/40 bg-cyan-300/10 px-5 py-3 text-sm font-semibold text-cyan-100 transition hover:bg-cyan-300/20"
   >
     <KeyRound size={18} />
     Entrar em turma
@@ -166,7 +174,7 @@ export default function AlunoPage() {
   >
     Enviar comprovante
   </Link>
-</div> 
+</div>        
         </header>
 
         {erro && (
