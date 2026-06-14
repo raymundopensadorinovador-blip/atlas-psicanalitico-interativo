@@ -37,9 +37,27 @@ type LessonPoint = {
 
 type Progress = {
   id: string;
-  viewed_points: string[];
+  viewed_points: string[] | null;
   progress_percent: number;
   status: string;
+};
+
+type InteractiveLessonRow = {
+  lesson_id: string;
+  lesson_title: string;
+  lesson_description: string | null;
+  lesson_map_type: string | null;
+
+  point_id: string | null;
+  point_title: string | null;
+  point_short_text: string | null;
+  point_full_text: string | null;
+  point_teacher_note: string | null;
+  point_reference_text: string | null;
+  point_x_position: number | null;
+  point_y_position: number | null;
+  point_color: string | null;
+  point_order: number | null;
 };
 
 export default function AulaPage() {
@@ -70,6 +88,8 @@ export default function AulaPage() {
 
   useEffect(() => {
     async function carregar() {
+      setErro("");
+
       const { profile: loadedProfile } = await getCurrentProfile();
 
       if (!loadedProfile) {
@@ -84,49 +104,55 @@ export default function AulaPage() {
 
       setProfile(loadedProfile);
 
-      const { data: lessonData, error: lessonError } = await supabase
-        .from("lessons")
-        .select("id, title, description, map_type")
-        .eq("id", lessonId)
-        .single();
+      const { data: lessonRows, error: lessonError } = await supabase.rpc(
+        "get_interactive_lesson",
+        {
+          p_lesson_id: lessonId,
+        }
+      );
 
-      if (lessonError || !lessonData) {
+      if (lessonError) {
+        setErro(lessonError.message);
+        setLoading(false);
+        return;
+      }
+
+      const rows = (lessonRows ?? []) as InteractiveLessonRow[];
+
+      if (rows.length === 0) {
         setErro("Aula não encontrada.");
         setLoading(false);
         return;
       }
 
-      const { data: pointsData, error: pointsError } = await supabase
-        .from("lesson_points")
-        .select(
-          `
-          id,
-          lesson_id,
-          title,
-          short_text,
-          full_text,
-          teacher_note,
-          reference_text,
-          x_position,
-          y_position,
-          color,
-          order_index
-        `
-        )
-        .eq("lesson_id", lessonId)
-        .order("order_index", { ascending: true });
+      const firstRow = rows[0];
 
-      if (pointsError) {
-        setErro(pointsError.message);
-        setLoading(false);
-        return;
-      }
+      setLesson({
+        id: firstRow.lesson_id,
+        title: firstRow.lesson_title,
+        description: firstRow.lesson_description,
+        map_type: firstRow.lesson_map_type,
+      });
 
-      const typedPoints = (pointsData ?? []) as LessonPoint[];
+      const lessonPoints = rows
+        .filter((row) => row.point_id)
+        .map((row) => ({
+          id: row.point_id as string,
+          lesson_id: row.lesson_id,
+          title: row.point_title ?? "Ponto da aula",
+          short_text: row.point_short_text,
+          full_text: row.point_full_text,
+          teacher_note: row.point_teacher_note,
+          reference_text: row.point_reference_text,
+          x_position: Number(row.point_x_position ?? 50),
+          y_position: Number(row.point_y_position ?? 50),
+          color: row.point_color ?? "#38BDF8",
+          order_index: Number(row.point_order ?? 1),
+        }))
+        .sort((a, b) => a.order_index - b.order_index);
 
-      setLesson(lessonData as Lesson);
-      setPoints(typedPoints);
-      setSelectedPointId(typedPoints[0]?.id ?? null);
+      setPoints(lessonPoints);
+      setSelectedPointId(lessonPoints[0]?.id ?? null);
 
       if (loadedProfile.role === "student" && classId) {
         const { data: progressData } = await supabase
@@ -139,7 +165,7 @@ export default function AulaPage() {
 
         if (progressData) {
           const typedProgress = progressData as Progress;
-          setViewedPoints(typedProgress.viewed_points ?? []);
+          setViewedPoints((typedProgress.viewed_points ?? []) as string[]);
         }
       }
 
@@ -212,7 +238,20 @@ export default function AulaPage() {
   if (!profile || !lesson) {
     return (
       <main className="flex min-h-screen items-center justify-center bg-[#070B14] px-6 text-white">
-        <p className="text-sm text-slate-300">{erro || "Aula não encontrada."}</p>
+        <div className="max-w-xl rounded-[2rem] border border-red-400/30 bg-red-500/10 p-6 text-center text-red-100">
+          <h1 className="text-xl font-semibold">Aula não encontrada</h1>
+          <p className="mt-3 text-sm leading-7">
+            {erro ||
+              "Não foi possível carregar esta aula. Verifique se ela está ativa no banco."}
+          </p>
+
+          <Link
+            href="/aluno/aulas"
+            className="mt-5 inline-flex rounded-2xl bg-cyan-300 px-5 py-3 text-sm font-semibold text-slate-950"
+          >
+            Voltar para minhas aulas
+          </Link>
+        </div>
       </main>
     );
   }
@@ -273,10 +312,10 @@ export default function AulaPage() {
                 <div className="text-center">
                   <BookOpen className="mx-auto text-cyan-200" size={54} />
                   <p className="mt-4 text-sm uppercase tracking-[0.28em] text-cyan-200">
-                    Consultório
+                    Atlas
                   </p>
                   <p className="mt-2 text-2xl font-semibold text-white">
-                    fala & escuta
+                    aula visual
                   </p>
                 </div>
               </div>
@@ -319,12 +358,13 @@ export default function AulaPage() {
               })}
 
               <div className="absolute right-5 top-5 rounded-full border border-white/10 bg-black/40 px-4 py-2 text-xs text-slate-200 backdrop-blur">
-                Mapa visual introdutório
+                Mapa visual interativo
               </div>
 
               <div className="absolute bottom-5 left-5 right-5 rounded-2xl border border-cyan-300/20 bg-black/40 p-4 text-sm leading-6 text-slate-200 backdrop-blur">
-                Esta imagem é simbólica. Ela representa o campo da fala, da
-                escuta e do inconsciente, não uma localização anatômica.
+                Esta imagem é simbólica. Ela organiza visualmente os conceitos
+                centrais da aula, sem pretender representar uma estrutura
+                anatômica literal.
               </div>
             </div>
           </section>

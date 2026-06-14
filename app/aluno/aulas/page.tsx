@@ -3,69 +3,48 @@
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
-import { ArrowLeft, BookOpen, Layers3, MonitorPlay } from "lucide-react";
+import {
+  ArrowLeft,
+  BookOpen,
+  ChevronDown,
+  ChevronRight,
+  Layers3,
+  MonitorPlay,
+} from "lucide-react";
 import AppHeader from "@/components/AppHeader";
 import { getCurrentProfile, getDashboardPath, type Profile } from "@/lib/auth";
 import { supabase } from "@/lib/supabase";
 
-type ClassStudent = {
-  id: string;
+type AvailableLesson = {
   class_id: string;
-  status: string;
-};
-
-type ClassItem = {
-  id: string;
-  title: string;
+  class_title: string;
   course_id: string;
-  status: string;
-};
+  course_title: string;
+  course_workload_hours: number | null;
 
-type Course = {
-  id: string;
-  title: string;
-  workload_hours: number;
-  is_active: boolean;
-};
-
-type CourseModule = {
-  id: string;
-  course_id: string;
-  title: string;
-  description: string | null;
-  order_index: number;
-  is_active: boolean;
-};
-
-type Lesson = {
-  id: string;
   module_id: string;
-  title: string;
-  description: string | null;
-  map_type: string | null;
-  order_index: number;
-  is_active: boolean;
-};
+  module_title: string;
+  module_description: string | null;
+  module_order: number;
 
-type Progress = {
-  lesson_id: string;
-  class_id: string;
+  lesson_id: string | null;
+  lesson_title: string | null;
+  lesson_description: string | null;
+  lesson_map_type: string | null;
+  lesson_order: number | null;
+
   progress_percent: number;
-  status: string;
+  progress_status: string;
 };
 
 export default function AlunoAulasPage() {
   const router = useRouter();
 
   const [profile, setProfile] = useState<Profile | null>(null);
-  const [classStudents, setClassStudents] = useState<ClassStudent[]>([]);
-  const [classes, setClasses] = useState<ClassItem[]>([]);
-  const [courses, setCourses] = useState<Course[]>([]);
-  const [modules, setModules] = useState<CourseModule[]>([]);
-  const [lessons, setLessons] = useState<Lesson[]>([]);
-  const [progressList, setProgressList] = useState<Progress[]>([]);
+  const [items, setItems] = useState<AvailableLesson[]>([]);
   const [loading, setLoading] = useState(true);
   const [erro, setErro] = useState("");
+  const [openModules, setOpenModules] = useState<Record<string, boolean>>({});
 
   useEffect(() => {
     async function carregar() {
@@ -90,150 +69,96 @@ export default function AlunoAulasPage() {
 
       setProfile(loadedProfile);
 
-      const { data: classStudentsData, error: classStudentsError } =
-        await supabase
-          .from("class_students")
-          .select("id, class_id, status")
-          .eq("student_id", loadedProfile.id);
-
-      if (classStudentsError) {
-        setErro(classStudentsError.message);
-        setLoading(false);
-        return;
-      }
-
-      const typedClassStudents = (classStudentsData ?? []) as ClassStudent[];
-      const activeClassStudents = typedClassStudents.filter(
-        (item) => item.status === "active"
-      );
-
-      setClassStudents(activeClassStudents);
-
-      const classIds = activeClassStudents.map((item) => item.class_id);
-
-      if (classIds.length === 0) {
-        setLoading(false);
-        return;
-      }
-
-      const { data: classesData, error: classesError } = await supabase
-        .from("classes")
-        .select("id, title, course_id, status")
-        .in("id", classIds);
-
-      if (classesError) {
-        setErro(classesError.message);
-        setLoading(false);
-        return;
-      }
-
-      const typedClasses = ((classesData ?? []) as ClassItem[]).filter(
-        (classItem) => classItem.status === "active"
-      );
-
-      setClasses(typedClasses);
-
-      const courseIds = Array.from(
-        new Set(typedClasses.map((classItem) => classItem.course_id))
-      );
-
-      if (courseIds.length === 0) {
-        setLoading(false);
-        return;
-      }
-
-      const { data: coursesData, error: coursesError } = await supabase
-        .from("courses")
-        .select("id, title, workload_hours, is_active")
-        .in("id", courseIds);
-
-      if (coursesError) {
-        setErro(coursesError.message);
-        setLoading(false);
-        return;
-      }
-
-      const typedCourses = ((coursesData ?? []) as Course[]).filter(
-        (course) => course.is_active
-      );
-
-      setCourses(typedCourses);
-
-      const activeCourseIds = typedCourses.map((course) => course.id);
-
-      if (activeCourseIds.length === 0) {
-        setLoading(false);
-        return;
-      }
-
-      const { data: modulesData, error: modulesError } = await supabase
-        .from("course_modules")
-        .select("id, course_id, title, description, order_index, is_active")
-        .in("course_id", activeCourseIds)
-        .order("order_index", { ascending: true });
-
-      if (modulesError) {
-        setErro(modulesError.message);
-        setLoading(false);
-        return;
-      }
-
-      const typedModules = ((modulesData ?? []) as CourseModule[]).filter(
-        (moduleItem) => moduleItem.is_active
-      );
-
-      setModules(typedModules);
-
-      const moduleIds = typedModules.map((moduleItem) => moduleItem.id);
-
-      if (moduleIds.length > 0) {
-        const { data: lessonsData, error: lessonsError } = await supabase
-          .from("lessons")
-          .select(
-            "id, module_id, title, description, map_type, order_index, is_active"
-          )
-          .in("module_id", moduleIds)
-          .order("order_index", { ascending: true });
-
-        if (lessonsError) {
-          setErro(lessonsError.message);
-          setLoading(false);
-          return;
+      const { data, error } = await supabase.rpc(
+        "get_student_available_lessons",
+        {
+          p_student_id: loadedProfile.id,
         }
+      );
 
-        const typedLessons = ((lessonsData ?? []) as Lesson[]).filter(
-          (lesson) => lesson.is_active
-        );
-
-        setLessons(typedLessons);
+      if (error) {
+        setErro(error.message);
+        setLoading(false);
+        return;
       }
 
-      const { data: progressData } = await supabase
-        .from("student_lesson_progress")
-        .select("lesson_id, class_id, progress_percent, status")
-        .eq("student_id", loadedProfile.id)
-        .in("class_id", classIds);
-
-      setProgressList((progressData ?? []) as Progress[]);
+      setItems((data ?? []) as AvailableLesson[]);
       setLoading(false);
     }
 
     carregar();
   }, [router]);
 
-  const coursesById = useMemo(() => {
-    return new Map(courses.map((course) => [course.id, course]));
-  }, [courses]);
+  const classes = useMemo(() => {
+    const map = new Map<
+      string,
+      {
+        class_id: string;
+        class_title: string;
+        course_id: string;
+        course_title: string;
+        course_workload_hours: number | null;
+        modules: Map<
+          string,
+          {
+            module_id: string;
+            module_title: string;
+            module_description: string | null;
+            module_order: number;
+            lessons: AvailableLesson[];
+          }
+        >;
+      }
+    >();
 
-  const progressByLessonAndClass = useMemo(() => {
-    const map = new Map<string, Progress>();
+    for (const item of items) {
+      if (!map.has(item.class_id)) {
+        map.set(item.class_id, {
+          class_id: item.class_id,
+          class_title: item.class_title,
+          course_id: item.course_id,
+          course_title: item.course_title,
+          course_workload_hours: item.course_workload_hours,
+          modules: new Map(),
+        });
+      }
 
-    for (const progress of progressList) {
-      map.set(`${progress.class_id}-${progress.lesson_id}`, progress);
+      const classItem = map.get(item.class_id)!;
+
+      if (!classItem.modules.has(item.module_id)) {
+        classItem.modules.set(item.module_id, {
+          module_id: item.module_id,
+          module_title: item.module_title,
+          module_description: item.module_description,
+          module_order: item.module_order,
+          lessons: [],
+        });
+      }
+
+      if (item.lesson_id) {
+        classItem.modules.get(item.module_id)!.lessons.push(item);
+      }
     }
 
-    return map;
-  }, [progressList]);
+    return Array.from(map.values()).map((classItem) => ({
+      ...classItem,
+      modules: Array.from(classItem.modules.values()).sort(
+        (a, b) => a.module_order - b.module_order
+      ),
+    }));
+  }, [items]);
+
+  const totalModules = useMemo(() => {
+    const moduleIds = new Set(items.map((item) => item.module_id));
+    return moduleIds.size;
+  }, [items]);
+
+  function toggleModule(moduleId: string) {
+    setOpenModules((current) => ({
+      ...current,
+      [moduleId]: !current[moduleId],
+    }));
+  }
 
   if (loading) {
     return (
@@ -279,154 +204,161 @@ export default function AlunoAulasPage() {
           </div>
         )}
 
-        <div className="mt-6 grid gap-4 md:grid-cols-4">
-          <DebugCard title="Vínculos ativos" value={String(classStudents.length)} />
-          <DebugCard title="Turmas ativas" value={String(classes.length)} />
-          <DebugCard title="Módulos encontrados" value={String(modules.length)} />
-          <DebugCard title="Aulas encontradas" value={String(lessons.length)} />
+        <div className="mt-6 grid gap-4 md:grid-cols-3">
+          <DebugCard title="Turmas encontradas" value={String(classes.length)} />
+          <DebugCard title="Módulos encontrados" value={String(totalModules)} />
+          <DebugCard
+  title="Aulas encontradas"
+  value={String(items.filter((item) => item.lesson_id).length)}
+/>
         </div>
 
         <div className="mt-8 space-y-6">
-          {classes.length === 0 && (
+          {items.length === 0 && (
             <div className="rounded-[2rem] border border-yellow-300/20 bg-yellow-300/10 p-6 text-yellow-100">
               <h2 className="text-xl font-semibold">
-                Nenhuma turma ativa encontrada
+                Nenhuma aula liberada encontrada
               </h2>
               <p className="mt-2 text-sm leading-7">
-                Entre em uma turma ativa usando o código recebido para acessar
-                as aulas.
+                Verifique se o aluno está vinculado a uma turma ativa e se o
+                curso possui módulos e aulas ativos.
               </p>
             </div>
           )}
 
-          {classes.map((classItem) => {
-            const course = coursesById.get(classItem.course_id);
-            const courseModules = modules.filter(
-              (moduleItem) => moduleItem.course_id === classItem.course_id
-            );
+          {classes.map((classItem) => (
+            <article
+              key={classItem.class_id}
+              className="rounded-[2rem] border border-white/10 bg-white/[0.06] p-6"
+            >
+              <div>
+                <p className="text-xs uppercase tracking-[0.25em] text-cyan-300">
+                  {classItem.class_title}
+                </p>
 
-            return (
-              <article
-                key={classItem.id}
-                className="rounded-[2rem] border border-white/10 bg-white/[0.06] p-6"
-              >
-                <div>
-                  <p className="text-xs uppercase tracking-[0.25em] text-cyan-300">
-                    {classItem.title}
+                <h2 className="mt-2 text-2xl font-semibold">
+                  {classItem.course_title}
+                </h2>
+
+                {classItem.course_workload_hours && (
+                  <p className="mt-2 text-sm text-slate-300">
+                    Carga horária: {classItem.course_workload_hours}h
                   </p>
+                )}
+              </div>
 
-                  <h2 className="mt-2 text-2xl font-semibold">
-                    {course?.title ?? "Curso não encontrado"}
-                  </h2>
-                </div>
+              <div className="mt-6 space-y-4">
+                {classItem.modules.map((moduleItem) => (
+                 <section
+                 key={moduleItem.module_id}
+                 className="rounded-3xl border border-white/10 bg-[#07101D] p-4"
+               >
+                 <button
+                   type="button"
+                   onClick={() => toggleModule(moduleItem.module_id)}
+                   className="flex w-full items-start justify-between gap-4 rounded-2xl p-2 text-left transition hover:bg-white/[0.04]"
+                 >
+                   <div className="flex items-start gap-3">
+                     <div className="rounded-2xl bg-cyan-300/10 p-3 text-cyan-200">
+                       <Layers3 size={20} />
+                     </div>
+               
+                     <div>
+                       <p className="text-xs font-semibold uppercase tracking-[0.25em] text-cyan-300">
+                         Módulo {moduleItem.module_order}
+                       </p>
+               
+                       <h3 className="mt-1 text-lg font-semibold">
+                         {moduleItem.module_title}
+                       </h3>
+               
+                       <p className="mt-2 text-xs text-slate-400">
+                         {moduleItem.lessons.length > 0
+                           ? `${moduleItem.lessons.length} aula(s) cadastrada(s)`
+                           : "Nenhuma aula cadastrada ainda"}
+                       </p>
+               
+                       {moduleItem.module_description && openModules[moduleItem.module_id] && (
+                         <p className="mt-2 text-sm leading-6 text-slate-300">
+                           {moduleItem.module_description}
+                         </p>
+                       )}
+                     </div>
+                   </div>
+               
+                   <div className="mt-2 rounded-full border border-white/10 bg-white/[0.04] p-2 text-cyan-100">
+                     {openModules[moduleItem.module_id] ? (
+                       <ChevronDown size={18} />
+                     ) : (
+                       <ChevronRight size={18} />
+                     )}
+                   </div>
+                 </button>
+               
+                 {openModules[moduleItem.module_id] && (
+                   <div className="mt-4 space-y-2">
+                    {moduleItem.lessons.length === 0 && (
+  <div className="rounded-2xl border border-white/10 bg-white/[0.04] p-4 text-sm text-slate-300">
+    Nenhuma aula cadastrada neste módulo ainda.
+  </div>
+)}
 
-                <div className="mt-6 space-y-4">
-                  {courseModules.length === 0 && (
-                    <div className="rounded-2xl border border-yellow-300/20 bg-yellow-300/10 p-5 text-sm leading-6 text-yellow-100">
-                      Nenhum módulo encontrado para este curso.
-                    </div>
-                  )}
-
-                  {courseModules.map((moduleItem) => {
-                    const moduleLessons = lessons.filter(
-                      (lesson) => lesson.module_id === moduleItem.id
-                    );
-
-                    return (
-                      <section
-                        key={moduleItem.id}
-                        className="rounded-3xl border border-white/10 bg-[#07101D] p-5"
-                      >
-                        <div className="flex items-start gap-3">
-                          <div className="rounded-2xl bg-cyan-300/10 p-3 text-cyan-200">
-                            <Layers3 size={20} />
-                          </div>
-
-                          <div>
-                            <p className="text-xs font-semibold uppercase tracking-[0.25em] text-cyan-300">
-                              Módulo {moduleItem.order_index}
-                            </p>
-
-                            <h3 className="mt-1 text-lg font-semibold">
-                              {moduleItem.title}
-                            </h3>
-
-                            {moduleItem.description && (
-                              <p className="mt-2 text-sm leading-6 text-slate-300">
-                                {moduleItem.description}
-                              </p>
-                            )}
-                          </div>
-                        </div>
-
-                        <div className="mt-4 space-y-2">
-                          {moduleLessons.length === 0 && (
-                            <div className="rounded-2xl border border-white/10 bg-white/[0.04] p-4 text-sm text-slate-300">
-                              Nenhuma aula cadastrada neste módulo ainda.
-                            </div>
-                          )}
-
-                          {moduleLessons.map((lesson) => {
-                            const progress = progressByLessonAndClass.get(
-                              `${classItem.id}-${lesson.id}`
-                            );
-
-                            return (
-                              <div
-                                key={lesson.id}
-                                className="rounded-2xl border border-cyan-300/10 bg-cyan-300/5 p-4 transition hover:bg-cyan-300/10"
-                              >
-                                <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
-                                  <div>
-                                    <div className="flex items-center gap-2">
-                                      <BookOpen
-                                        size={18}
-                                        className="text-cyan-200"
-                                      />
-                                      <p className="font-semibold text-white">
-                                        Aula {lesson.order_index}: {lesson.title}
-                                      </p>
-                                    </div>
-
-                                    {lesson.description && (
-                                      <p className="mt-2 text-sm leading-6 text-slate-300">
-                                        {lesson.description}
-                                      </p>
-                                    )}
-
-                                    {lesson.map_type && (
-                                      <p className="mt-2 inline-flex items-center gap-2 rounded-full bg-white/[0.06] px-3 py-1 text-xs text-cyan-100">
-                                        <MonitorPlay size={14} />
-                                        Mapa: {lesson.map_type}
-                                      </p>
-                                    )}
-                                  </div>
-
-                                  <div className="flex flex-col gap-3 md:items-end">
-                                    <div className="rounded-2xl border border-white/10 bg-white/[0.04] px-4 py-3 text-sm text-slate-200">
-                                      Progresso:{" "}
-                                      {progress?.progress_percent ?? 0}%
-                                    </div>
-
-                                    <Link
-                                      href={`/aula/${lesson.id}?classId=${classItem.id}`}
-                                      className="rounded-2xl bg-cyan-300 px-5 py-3 text-center text-sm font-semibold text-slate-950 transition hover:bg-cyan-200"
-                                    >
-                                      Abrir aula
-                                    </Link>
-                                  </div>
+{moduleItem.lessons
+  .sort((a, b) => Number(a.lesson_order ?? 0) - Number(b.lesson_order ?? 0))
+  .map((lesson) => (
+                          <div
+                            key={lesson.lesson_id}
+                            className="rounded-2xl border border-cyan-300/10 bg-cyan-300/5 p-4 transition hover:bg-cyan-300/10"
+                          >
+                            <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
+                              <div>
+                                <div className="flex items-center gap-2">
+                                  <BookOpen
+                                    size={18}
+                                    className="text-cyan-200"
+                                  />
+                                  <p className="font-semibold text-white">
+                                    Aula {lesson.lesson_order}:{" "}
+                                    {lesson.lesson_title}
+                                  </p>
                                 </div>
+
+                                {lesson.lesson_description && (
+                                  <p className="mt-2 text-sm leading-6 text-slate-300">
+                                    {lesson.lesson_description}
+                                  </p>
+                                )}
+
+                                {lesson.lesson_map_type && (
+                                  <p className="mt-2 inline-flex items-center gap-2 rounded-full bg-white/[0.06] px-3 py-1 text-xs text-cyan-100">
+                                    <MonitorPlay size={14} />
+                                    Mapa: {lesson.lesson_map_type}
+                                  </p>
+                                )}
                               </div>
-                            );
-                          })}
-                        </div>
-                      </section>
-                    );
-                  })}
-                </div>
-              </article>
-            );
-          })}
+
+                              <div className="flex flex-col gap-3 md:items-end">
+                                <div className="rounded-2xl border border-white/10 bg-white/[0.04] px-4 py-3 text-sm text-slate-200">
+                                  Progresso: {lesson.progress_percent ?? 0}%
+                                </div>
+
+                                <Link
+                                  href={`/aula/${lesson.lesson_id as string}?classId=${classItem.class_id}`}
+                                  className="rounded-2xl bg-cyan-300 px-5 py-3 text-center text-sm font-semibold text-slate-950 transition hover:bg-cyan-200"
+                                >
+                                  Abrir aula
+                                </Link>
+                              </div>
+                            </div>
+                          </div>
+                        ))}
+                    </div>
+                    )}
+                  </section>
+                ))}
+              </div>
+            </article>
+          ))}
         </div>
       </section>
     </main>
